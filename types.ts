@@ -1,3 +1,4 @@
+import React from 'react';
 
 export interface Task {
   id: string;
@@ -32,3 +33,11 @@ export interface DailyLog {
 export type Section = 'study' | 'workout' | 'habits';
 
 export type WorkoutType = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  unlocked: boolean;
+}

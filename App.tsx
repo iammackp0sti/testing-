@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { DailyLog, Task, Habit, Section, WorkoutType } from './types';
+import { DailyLog, Task, Habit, Section, WorkoutType, Achievement } from './types';
 import { getFormattedDate, getDayOfWeek } from './utils/dateUtils';
 import { DEFAULT_WORKOUT_SCHEDULE, ICONS } from './constants';
 import Header from './components/Header';
@@ -10,6 +9,9 @@ import TaskCard from './components/TaskCard';
 import TaskItem from './components/TaskItem';
 import WeeklyView from './components/WeeklyView';
 import AiCoach from './components/AiCoach';
+import { calculateStreaks } from './utils/statsUtils';
+import { checkAchievements } from './achievements';
+import AchievementsView from './components/AchievementsView';
 
 const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useLocalStorage<boolean>('darkMode', false);
@@ -17,6 +19,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useLocalStorage<Record<string, DailyLog>>('dailyLogs', {});
   const [isWeeklyViewOpen, setIsWeeklyViewOpen] = useState(false);
   const [isAiCoachOpen, setIsAiCoachOpen] = useState(false);
+  const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
 
   const dateKey = useMemo(() => getFormattedDate(currentDate), [currentDate]);
 
@@ -73,15 +76,15 @@ const App: React.FC = () => {
     updateLog({ [section]: updatedTasks });
   };
   
-  const handleAddTask = (section: 'study' | 'habits', text: string) => {
+  const handleAddTask = (section: Section, text: string) => {
     if (!text.trim()) return;
-    const newTask = { id: crypto.randomUUID(), text, completed: false };
-    const sectionTasks = currentLog[section] as (Task[] | Habit[]);
+    const newTask: Task = { id: crypto.randomUUID(), text, completed: false };
+    const sectionTasks = currentLog[section] as Task[];
     updateLog({ [section]: [...sectionTasks, newTask] });
   };
 
-  const handleRemoveTask = (section: 'study' | 'habits', id: string) => {
-    const sectionTasks = currentLog[section] as (Task[] | Habit[]);
+  const handleRemoveTask = (section: Section, id: string) => {
+    const sectionTasks = currentLog[section] as Task[];
     updateLog({ [section]: sectionTasks.filter(task => task.id !== id) });
   };
 
@@ -107,6 +110,9 @@ const App: React.FC = () => {
   const completedTasks = allTasks.filter(task => task.completed).length;
   const progress = allTasks.length > 0 ? (completedTasks / allTasks.length) * 100 : 0;
   
+  const streaks = useMemo(() => calculateStreaks(logs, new Date()), [logs]);
+  const unlockedAchievements = useMemo(() => checkAchievements(logs), [logs]);
+
   const handleNotionSync = () => {
     const dataForNotion = {
       date: dateKey,
@@ -123,6 +129,50 @@ const App: React.FC = () => {
     alert("Data prepared for Notion sync. Check the console for the data payload. In a real app, this would be sent to a Notion API endpoint.");
   };
 
+  const handleExport = () => {
+    const data = JSON.stringify(logs, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zenith-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert('Data exported successfully!');
+  };
+
+  const handleImport = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = (e) => {
+          const file = (e.target as HTMLInputElement).files?.[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              try {
+                  const importedLogs = JSON.parse(event.target?.result as string);
+                  if (typeof importedLogs === 'object' && importedLogs !== null) {
+                      if (window.confirm('This will overwrite your current data. Are you sure you want to continue?')) {
+                          setLogs(importedLogs);
+                          alert('Data imported successfully!');
+                      }
+                  } else {
+                      throw new Error('Invalid file format');
+                  }
+              } catch (error) {
+                  console.error("Import failed:", error);
+                  alert('Failed to import data. Please select a valid JSON file.');
+              }
+          };
+          reader.readAsText(file);
+      };
+      input.click();
+  };
+
   return (
     <div className="min-h-screen font-sans text-gray-800 dark:text-gray-200">
       <div className="container mx-auto max-w-2xl p-4 pb-20">
@@ -133,12 +183,16 @@ const App: React.FC = () => {
           toggleDarkMode={toggleDarkMode} 
           onWeeklyView={() => setIsWeeklyViewOpen(true)}
           onNotionSync={handleNotionSync}
+          onAchievements={() => setIsAchievementsOpen(true)}
+          onExport={handleExport}
+          onImport={handleImport}
         />
         
         <main>
           <ProgressBar progress={progress} />
+          <StreakDisplay streaks={streaks} />
           
-          <div className="space-y-6 mt-6">
+          <div className="space-y-6">
             <TaskCard title="Study" color="study" icon={ICONS.study}>
                 {currentLog.study.map(task => (
                     <TaskItem key={task.id} task={task} onToggle={() => handleTaskToggle('study', task.id)} onRemove={() => handleRemoveTask('study', task.id)} />
@@ -147,9 +201,21 @@ const App: React.FC = () => {
             </TaskCard>
 
             <TaskCard title="Workout" color="workout" icon={ICONS.workout}>
-              {currentLog.workout.length > 0 ? currentLog.workout.map(task => (
-                <TaskItem key={task.id} task={task} onToggle={() => handleTaskToggle('workout', task.id)} />
-              )) : <p className="text-sm text-gray-500 dark:text-gray-400 px-3 py-2">Rest day! 🧘</p>}
+              {currentLog.workout.length > 0 ? (
+                currentLog.workout.map(task => (
+                  <TaskItem 
+                    key={task.id} 
+                    task={task} 
+                    onToggle={() => handleTaskToggle('workout', task.id)} 
+                    onRemove={() => handleRemoveTask('workout', task.id)}
+                  />
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400 px-3 py-2">
+                  Rest day! 🧘 Add an exercise to get started.
+                </p>
+              )}
+              <NewTaskInput onAddTask={(text) => handleAddTask('workout', text)} />
             </TaskCard>
 
             <TaskCard title="Habits" color="habits" icon={ICONS.habits}>
@@ -188,6 +254,36 @@ const App: React.FC = () => {
 
       {isWeeklyViewOpen && <WeeklyView logs={logs} onClose={() => setIsWeeklyViewOpen(false)} />}
       {isAiCoachOpen && <AiCoach dailyLog={currentLog} onClose={() => setIsAiCoachOpen(false)} />}
+      {isAchievementsOpen && <AchievementsView unlockedAchievements={unlockedAchievements} onClose={() => setIsAchievementsOpen(false)} />}
+    </div>
+  );
+};
+
+const StreakDisplay: React.FC<{streaks: {study: number; workout: number; habits: number}}> = ({ streaks }) => {
+  const streakItems = [
+    { name: 'Study', value: streaks.study, icon: ICONS.study },
+    { name: 'Workout', value: streaks.workout, icon: ICONS.workout },
+    { name: 'Habits', value: streaks.habits, icon: ICONS.habits },
+  ];
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 my-6">
+      <div className="flex justify-around">
+        {streakItems.map(item => (
+          <div key={item.name} className="flex flex-col items-center w-20 text-center">
+            <div className={`relative ${item.value > 0 ? 'text-orange-500' : 'text-gray-400 dark:text-gray-500'}`}>
+              {item.icon}
+              {item.value > 0 && 
+                <div className="absolute -top-1 -right-2 text-orange-500">
+                  {ICONS.streak}
+                </div>
+              }
+            </div>
+            <p className="font-bold text-xl mt-1">{item.value}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{item.name} Streak</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

@@ -1,6 +1,5 @@
-
 import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DailyLog } from '../types';
 import { getFormattedDate } from '../utils/dateUtils';
 import { ICONS } from '../constants';
@@ -22,6 +21,7 @@ const WeeklyView: React.FC<WeeklyViewProps> = ({ logs, onClose }) => {
       let studyPercent = 0;
       let workoutPercent = 0;
       let habitsPercent = 0;
+      let waterIntake = 0;
 
       if (log) {
         const totalStudy = log.study.length;
@@ -36,6 +36,7 @@ const WeeklyView: React.FC<WeeklyViewProps> = ({ logs, onClose }) => {
         if (totalHabits > 0) {
             habitsPercent = (log.habits.filter(t => t.completed).length / totalHabits) * 100;
         }
+        waterIntake = log.lifestyle.water.current;
       }
       
       data.push({
@@ -43,6 +44,7 @@ const WeeklyView: React.FC<WeeklyViewProps> = ({ logs, onClose }) => {
         Study: Math.round(studyPercent),
         Workout: Math.round(workoutPercent),
         Habits: Math.round(habitsPercent),
+        "Water Intake": waterIntake,
       });
     }
     return data;
@@ -57,7 +59,7 @@ const WeeklyView: React.FC<WeeklyViewProps> = ({ logs, onClose }) => {
         </div>
         <div className="p-6 overflow-y-auto">
           <h3 className="text-lg font-semibold mb-4">Completion Percentage (%)</h3>
-          <div style={{ width: '100%', height: 400 }}>
+          <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128, 128, 128, 0.2)" />
@@ -78,6 +80,28 @@ const WeeklyView: React.FC<WeeklyViewProps> = ({ logs, onClose }) => {
               </BarChart>
             </ResponsiveContainer>
           </div>
+
+          <h3 className="text-lg font-semibold mt-8 mb-4">Water Intake (glasses)</h3>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+                <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(128, 128, 128, 0.2)" />
+                    <XAxis dataKey="name" tick={{ fill: 'currentColor' }} />
+                    <YAxis tick={{ fill: 'currentColor' }} />
+                    <Tooltip 
+                        contentStyle={{ 
+                            backgroundColor: 'rgba(31, 41, 55, 0.8)', 
+                            borderColor: '#4B5563',
+                            borderRadius: '0.5rem'
+                        }} 
+                        labelStyle={{ color: '#F9FAFB' }}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="Water Intake" stroke="#38BDF8" strokeWidth={2} />
+                </LineChart>
+            </ResponsiveContainer>
+          </div>
+
         </div>
       </div>
     </div>
